@@ -178,20 +178,38 @@ class ResnetBlock(nn.Module):
         self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
     def forward(self, x, time_emb = None, class_emb = None):
+        print('Beginning of resnet block')
+        
+        # time_emb.shape = (8, 256)
+        # class_emb.shape = (8, 256)
+        
+        print(f"{time_emb.shape=}")
+        print(f"{class_emb.shape=}")
 
         scale_shift = None
         if exists(self.mlp) and (exists(time_emb) or exists(class_emb)):
             cond_emb = tuple(filter(exists, (time_emb, class_emb)))
-            cond_emb = torch.cat(cond_emb, dim = -1)
-            cond_emb = self.mlp(cond_emb)
-            cond_emb = rearrange(cond_emb, 'b c -> b c 1 1')
-            scale_shift = cond_emb.chunk(2, dim = 1)
+            cond_emb = torch.cat(cond_emb, dim = -1) # class_emb.shape = (8, 512)
+            print(f"{cond_emb.shape=}")
+            cond_emb = self.mlp(cond_emb) # (8, 128)
+            print(f"{cond_emb.shape=}")
+            cond_emb = rearrange(cond_emb, 'b c -> b c 1 1')  # (8, 128, 1, 1)
+            print(f"{cond_emb.shape=}")
+            scale_shift = cond_emb.chunk(2, dim = 1) # two tuples each of size (8 64, 1, 1)
+            for ss in scale_shift:
+                print(f"{ss.shape=}")
 
-        h = self.block1(x, scale_shift = scale_shift)
-
+        h = self.block1(x, scale_shift = scale_shift) # (6, 64, 128, 128)
+        print(f"{h.shape=}")
         h = self.block2(h)
-
-        return h + self.res_conv(x)
+        print(f"{h.shape=}") # (8, 64, 128, 128)
+        
+        return_val =  h + self.res_conv(x)
+        print(f"{return_val.shape=}")  # (8, 64, 128, 128)
+        
+        input()
+        
+        return return_val
 
 class LinearAttention(nn.Module):
     def __init__(self, dim, heads = 4, dim_head = 32):
@@ -280,7 +298,9 @@ class Unet(nn.Module):
         self.init_conv = nn.Conv2d(input_channels, init_dim, 7, padding = 3)
 
         dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
+        print(f"{dims=}")
         in_out = list(zip(dims[:-1], dims[1:]))
+        print(f"{in_out=}")
 
         # time embeddings
 
@@ -305,6 +325,7 @@ class Unet(nn.Module):
         # class embeddings
 
         self.classes_emb = nn.Embedding(num_classes, dim)
+        
         self.null_classes_emb = nn.Parameter(torch.randn(dim))
 
         classes_dim = dim * 4
@@ -377,11 +398,17 @@ class Unet(nn.Module):
 
     def forward(
         self,
-        x,
-        time,
-        classes,
+        x,          # (B,C,H,W)
+        time,       # (B,)
+        classes,    # (B,)
         cond_drop_prob = None
     ):
+        print("\nUnet forward starts")
+        print(f"{x.shape=}")
+        print(f"{time.shape=}")
+        print(f"{classes.shape=}")
+        print(f"{cond_drop_prob=}")
+        
         batch, device = x.shape[0], x.device
 
         cond_drop_prob = default(cond_drop_prob, self.cond_drop_prob)
@@ -438,6 +465,8 @@ class Unet(nn.Module):
         x = torch.cat((x, r), dim = 1)
 
         x = self.final_res_block(x, t, c)
+        
+        print("Unet forward ends\n")
         return self.final_conv(x)
 
 # gaussian diffusion trainer class
